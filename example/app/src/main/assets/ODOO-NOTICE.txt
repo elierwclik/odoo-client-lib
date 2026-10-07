@@ -1,0 +1,27 @@
+Odoo client — independent Android example
+
+This example imports the compiled Kotlin adaptation of the Python Odoo Client
+Library version 2.0.1, originally published by Odoo:
+https://github.com/odoo/odoo-client-lib
+
+Android/Kotlin adaptation maintained by elierwclik:
+https://github.com/elierwclik
+Adaptation repository: https://github.com/elierwclik/odoo-client-lib
+Official server repository (reference): https://github.com/odoo/odoo
+No original Python source files are bundled with this example.
+
+Odoo s.a. and OpenERP s.a. are copyright holders of the original code used as
+the basis of that library, together with these original authors:
+
+Copyright (C) Stephane Wirtel
+Copyright (C) 2011 Nicolas Vanhoren
+Copyright (C) 2011 OpenERP s.a. (<http://openerp.com>)
+Copyright (C) 2018 Nicolas Seinlet
+Copyright (C) 2018 Odoo s.a. (<http://odoo.com>)
+
+The library is distributed under its original BSD 3-Clause license. The complete
+license is included in LICENSE-ODOO.txt, in the application's legal notices,
+and inside app/libs/odoo-client.aar as META-INF/ODOO-LICENSE.txt in classes.jar.
+
+This Android adaptation and example are independent. They do not imply official
+endorsement by Odoo or by any other original copyright holder.

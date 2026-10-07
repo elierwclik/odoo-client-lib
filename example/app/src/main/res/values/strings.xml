@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Odoo Example</string>
+    <string name="server_url">Odoo URL (https://odoo.example.com)</string>
+    <string name="database">Database</string>
+    <string name="login">Username</string>
+    <string name="password">Password or API key</string>
+    <string name="load_contacts">Connect and view contacts</string>
+    <string name="instructions">Enter your server details to display up to 10 contacts.</string>
+    <string name="loading">Querying Odoo…</string>
+    <string name="missing_fields">Complete all fields.</string>
+    <string name="invalid_url">Check the URL and connection details.</string>
+    <string name="invalid_login">Authentication failed. Check your username, database, and password.</string>
+    <string name="odoo_error">Odoo rejected the query. Check your user permissions and API access.</string>
+    <string name="network_error">Connection failed. Check the URL, network, and server certificate.</string>
+    <string name="no_contacts">Connected successfully. No contacts are available.</string>
+    <string name="connected_as">Connected as user %1$d</string>
+</resources>

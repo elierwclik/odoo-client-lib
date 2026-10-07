@@ -1,0 +1,45 @@
+# Gradle, Kotlin, and Android build output (at any depth)
+.gradle/
+.kotlin/
+build/
+.cxx/
+.externalNativeBuild/
+captures/
+*.class
+*.dex
+*.hprof
+
+# Generated distributions and application packages
+outputs/
+distribution/
+release/
+*.apk
+*.aab
+*.ap_
+
+# Local SDK paths, signing settings, and keys
+local.properties
+keystore.properties
+signing.properties
+*.jks
+*.keystore
+
+# Android Studio / IntelliJ and local editor settings
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS files, logs, and editor backups
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+*.log
+*.swp
+*.swo
+*~
+
+# Keep Gradle wrapper JARs and the standalone example's imported AAR.
+# Do not add blanket *.jar or *.aar rules: these are required inputs.

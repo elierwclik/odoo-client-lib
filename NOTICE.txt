@@ -1,0 +1,33 @@
+Odoo Client Library — Android / Kotlin adaptation
+
+This library is derived from the Python Odoo Client Library version 2.0.1,
+published by Odoo at https://github.com/odoo/odoo-client-lib.
+The original source is referenced in Odoo's repository and is not bundled here.
+Android/Kotlin adaptation maintained by elierwclik:
+https://github.com/elierwclik
+Adaptation repository: https://github.com/elierwclik/odoo-client-lib
+Related official server repository: https://github.com/odoo/odoo
+
+Odoo s.a. and OpenERP s.a. are copyright holders of the original code used
+as the basis of this Android adaptation. All original copyright notices
+and the BSD 3-Clause license are preserved:
+
+Copyright (C) Stephane Wirtel
+Copyright (C) 2011 Nicolas Vanhoren
+Copyright (C) 2011 OpenERP s.a. (<http://openerp.com>)
+Copyright (C) 2018 Nicolas Seinlet
+Copyright (C) 2018 Odoo s.a. (<http://odoo.com>)
+
+Changes in the adaptation: Kotlin API, Android library packaging, coroutine
+HTTP transport, JSON/XML serialization, explicit CRUD helpers, cached JSON-2
+introspection, UTC date helpers, and offline automated protocol tests.
+
+The adaptation is unofficial. No endorsement by Odoo or the other original
+authors is implied. Odoo's name and contributors' names may not be used to
+endorse or promote a derived product without prior written permission.
+
+See LICENSE.txt (or LICENSE at the repository root) for the complete license,
+conditions and disclaimer.
+The binary includes copies at META-INF/ODOO-LICENSE.txt and
+META-INF/ODOO-NOTICE.txt. Preserve these notices when redistributing and
+include the license and attribution in the application's legal notices.
