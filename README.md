@@ -71,9 +71,27 @@ val contacts = client.getModel("res.partner").searchRead(
 )
 ```
 
-Supports XML-RPC, JSON-RPC, JSON-2, coroutine requests, CRUD helpers,
+Supports XML-RPC, JSON-RPC, JSON-2, custom HTTP/JSON-RPC controllers with optional
+web-session authentication, coroutine requests, CRUD helpers,
 and UTC date utilities. See the [library documentation](docs/README.md),
 [API reference](docs/api.md), and [usage examples](docs/examples.md).
+
+## Call a custom controller
+
+```kotlin
+val controllers = client.getControllers()
+val response = controllers.postJson(
+    path = "/stock_entrego_app/signatures",
+    body = listOf(mapOf("id" to 123, "signure" to signatureBase64)),
+    authenticated = true,
+)
+val result = response.json() as Map<*, *>
+// HTTP 200 means saved; HTTP 202 means accepted for background processing.
+```
+
+For public routes, use `OdooClient.controllers(baseUrl)` without credentials.
+Use `http()` for raw HTTP, `postJson()` for a JSON body, and `jsonRpc()` for
+a custom Odoo JSON-RPC route. See [controller examples](docs/examples.md#custom-http-and-json-rpc-controllers).
 
 ## Odoo references and attribution
 

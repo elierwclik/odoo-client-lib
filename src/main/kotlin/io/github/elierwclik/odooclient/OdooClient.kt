@@ -29,6 +29,10 @@ class OdooClient private constructor(
     private val contextMutex = Mutex()
     private val requestIds = AtomicLong()
     private val models = ConcurrentHashMap<String, OdooModel>()
+    private val controllerClient by lazy {
+        check(protocol != OdooProtocol.JSON2) { "Create OdooClient.controllers() with web-login credentials for session routes" }
+        OdooControllerClient(this.baseUrl, database, login, secret, transport)
+    }
     private var userContext: Map<String, Any?>? = null
     @Volatile var userId: Int? = initialUserId
         private set
@@ -48,6 +52,12 @@ class OdooClient private constructor(
     }
 
     companion object {
+        /** Creates a custom-route client. Omit credentials for public routes. */
+        fun controllers(
+            baseUrl: String, database: String? = null, login: String? = null,
+            password: String? = null, transport: HttpTransport = UrlConnectionTransport(),
+        ): OdooControllerClient = OdooControllerClient(baseUrl, database, login, password, transport)
+
         /**
          * Creates a JSON-RPC or XML-RPC connection with lazy authentication.
          * [baseUrl] is the server root (optionally with a path prefix), without an RPC endpoint.
@@ -93,6 +103,9 @@ class OdooClient private constructor(
         validateName(name)
         return models.computeIfAbsent(name) { OdooModel(this, it) }
     }
+
+    /** Custom routes using this RPC client's transport and web-login credentials. */
+    fun getControllers(): OdooControllerClient = controllerClient
 
     /** Returns an RPC service proxy; JSON-2 has model endpoints instead. */
     fun getService(name: String): OdooService {

@@ -65,7 +65,7 @@ dependencyResolutionManagement {
 Then add:
 
 ```kotlin
-implementation("io.github.elierwclik:odoo-client-android:1.0.0")
+implementation("io.github.elierwclik:odoo-client-android:1.1.0")
 ```
 
 Gradle resolves external dependencies using the POM and module metadata.

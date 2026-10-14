@@ -9,11 +9,13 @@ Network methods are `suspend`. See [examples.md](examples.md) for usage.
 | --- | --- |
 | `rpc(baseUrl, database, login, password, protocol, userId, transport)` | RPC client; `protocol` defaults to `JSON_RPC`. Optional `userId` skips the first login when already known. |
 | `json2(baseUrl, apiKey, database, transport)` | JSON-2 client authenticated with an API key; `database` is optional. |
+| `controllers(baseUrl, database = null, login = null, password = null, transport)` | Custom-route client; no credentials needed for public routes. |
 | `getConnection(hostname, database, login, password, protocol, port, userId, transport)` | Migration shortcut; default port 8069 and protocol `xmlrpc`. |
 | `getModel(name)` | Cached model proxy; no network request. |
 | `getService(name)` | RPC service proxy such as `common`, `object`, or `db`; unavailable for JSON-2. |
 | `checkLogin(force = true): Int` | Validates credentials and returns the UID; throws on failure. |
 | `getUserContext(force = false): Map<String, Any?>` | Fetches and caches user context; `force` refreshes it. |
+| `getControllers(): OdooControllerClient` | Cached custom-route client sharing this RPC client's transport and credentials. |
 
 `baseUrl` supports a path prefix, but must not contain embedded credentials,
 query parameters, or a fragment. Include a port if required.
@@ -23,6 +25,50 @@ query parameters, or a fragment. Include a port if required.
 The `userId` property holds the authenticated UID for RPC. For JSON-2 it remains
 `null`; `checkLogin()` retrieves the UID through `res.users/context_get`.
 Credentials are immutable: create a new client to change them.
+
+## OdooControllerClient
+
+| Method | Result |
+| --- | --- |
+| `authenticate(force = false)` | Web-session UID, cached unless forced. |
+| `http(path, method = "GET", body = null, headers = {}, authenticated = false)` | Raw `HttpResponse`; body is a string sent verbatim. |
+| `postJson(path, body, authenticated = false, headers = {})` | Raw `HttpResponse`; serializes a JSON value, including a top-level list. |
+| `jsonRpc(path, params = {}, authenticated = false, headers = {})` | Unwrapped JSON-RPC result (`Any?`). |
+
+Paths start with `/` and refer to the configured server. A base URL path prefix
+is preserved; query strings are allowed. Absolute URLs, network-path references,
+fragments, and path traversal are rejected before authentication. Methods never
+send credentials to another origin. `postJson()` and `jsonRpc()` set JSON content
+type; `http()` uses the headers/body supplied by the caller.
+
+`authenticated = true` authenticates lazily through `/web/session/authenticate`
+and reuses the session cookie. It requires database, login, and a web-login
+password. RPC/API-key login is separate and does not establish a web session.
+`getControllers()` is for XML/JSON-RPC clients; for a JSON-2 client, create a
+separate controller client with web-login credentials.
+
+`authenticated = false` skips automatic login. It does not clear cookies already
+stored by the transport; use a separate client/transport for an anonymous session.
+Custom auth (such as a bearer header) can be supplied in `headers` without session
+authentication. A custom transport must retain session cookies for authenticated
+routes, as the default `UrlConnectionTransport` does.
+
+Raw HTTP calls return all status codes for the caller to handle, including 202,
+302, 403, and 503. They never follow redirects. Call `response.json()` to decode a
+JSON body as maps/lists/scalars; it does not check the HTTP status. Non-JSON bodies
+raise `ProtocolException` on decoding. HTTP 401 clears the cached session UID.
+
+`jsonRpc()` sends the JSON-RPC envelope to the specified controller path, with
+named `params` and a unique request ID. This works with Odoo 17/18 `type='json'`
+and newer `type='jsonrpc'` routes. It validates the response ID, unwraps `result`,
+and throws `RemoteException` for faults or `HttpException` for unsuccessful HTTP
+statuses. HTTP 401 or an Odoo session-expired fault clears the cached UID and
+throws `AuthenticationException`.
+
+No call is replayed automatically. After a login redirect or session expiration,
+authenticate with `force = true` and let the application decide whether to resend
+a write. CSRF requirements remain those of the server route: callers must supply
+tokens for HTTP routes that require them. The library does not disable CSRF.
 
 ## OdooModel
 
@@ -75,7 +121,7 @@ Model calls handle authentication automatically.
 
 `HttpTransport.execute(request: HttpRequest): HttpResponse` is injectable.
 `HttpRequest` exposes `url`, `method`, `headers`, and `body`.
-`HttpResponse` exposes `statusCode` and `body`.
+`HttpResponse` exposes `statusCode`, `body`, and `json(): Any?`.
 
 `UrlConnectionTransport` defaults:
 

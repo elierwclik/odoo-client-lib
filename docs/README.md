@@ -12,7 +12,7 @@ Maintainer: [elierwclik](https://github.com/elierwclik).
 | [Origins and credits](attribution.md) | Odoo repositories, licensing, and attribution |
 
 Public package: `io.github.elierwclik.odooclient`.
-Local coordinates: `io.github.elierwclik:odoo-client-android:1.0.0`.
+Local coordinates: `io.github.elierwclik:odoo-client-android:1.1.0`.
 
 This library derives from [odoo/odoo-client-lib](https://github.com/odoo/odoo-client-lib).
 The original copyrights and license of Odoo s.a., OpenERP s.a., and the other

@@ -106,7 +106,7 @@ class HttpTransportTest {
 }
 
 /** Small socket fixture using only Java APIs that also exist in Android's test classpath. */
-private class TestHttpServer {
+internal class TestHttpServer {
     private val socket = ServerSocket().apply { bind(InetSocketAddress("127.0.0.1", 0)) }
     val address: InetSocketAddress get() = socket.localSocketAddress as InetSocketAddress
     private val handlers = mutableMapOf<String, (Exchange) -> Unit>()

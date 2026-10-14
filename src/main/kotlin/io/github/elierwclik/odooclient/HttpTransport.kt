@@ -23,7 +23,10 @@ class HttpRequest(
     override fun toString(): String = "HttpRequest(method=$method)"
 }
 
-data class HttpResponse(val statusCode: Int, val body: String)
+data class HttpResponse(val statusCode: Int, val body: String) {
+    /** Decodes a raw JSON response; HTTP status handling remains the caller's choice. */
+    fun json(): Any? = JsonCodec.decode(body)
+}
 
 fun interface HttpTransport {
     suspend fun execute(request: HttpRequest): HttpResponse
@@ -50,7 +53,7 @@ class UrlConnectionTransport(
             connection.connectTimeout = connectTimeoutMillis
             connection.readTimeout = readTimeoutMillis
             connection.instanceFollowRedirects = false
-            connection.setRequestProperty("User-Agent", "odoo-client-android/1.0.0")
+            connection.setRequestProperty("User-Agent", "odoo-client-android/1.1.0")
             cookies.get(uri, emptyMap()).forEach { (name, values) ->
                 if (values.isNotEmpty()) connection.setRequestProperty(name, values.joinToString("; "))
             }
