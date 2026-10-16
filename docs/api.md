@@ -7,7 +7,7 @@ Network methods are `suspend`. See [examples.md](examples.md) for usage.
 
 | Method | Behavior |
 | --- | --- |
-| `authenticate(baseUrl, database, login, password, protocol, transport, context)` | Signs in immediately with a web-login password; returns a shared client for model RPC and session controllers. |
+| `authenticate(baseUrl, database, login, password, protocol, transport, context, onTwoFactorCode = null)` | Signs in immediately with a web-login password; returns a shared web-session client for models and controllers, with optional TOTP verification. |
 | `rpc(baseUrl, database, login, password, protocol, userId, transport, context)` | RPC client; `protocol` defaults to `JSON_RPC`. Optional `userId` skips the first login when already known. |
 | `json2(baseUrl, apiKey, database, transport, context)` | JSON-2 client authenticated with an API key; `database` is optional. |
 | `controllers(baseUrl, database = null, login = null, password = null, transport, context)` | Custom-route client; no credentials needed for public routes. |
@@ -31,10 +31,37 @@ Credentials are immutable: create a new client to change them.
 
 Create one client with `OdooClient.authenticate(...)` per account/server and reuse
 it throughout the app. It logs in through `/web/session/authenticate`, retains the
-cookie in the shared transport, and reuses the returned UID for model RPC without
-a second login. It requires a web-login password; use `rpc()` or `json2()` for API
+cookie in the shared transport, and uses `/web/dataset/call_kw` for model calls
+without sending the password again. This supports accounts with two-factor
+authentication, which require API keys for traditional external RPC. It requires a web-login password; use `rpc()` or `json2()` for API
 keys. No extra `checkLogin()` is necessary. Sessions are kept in memory by the
-default transport; this factory does not restore or validate a previous session.
+default transport; this factory does not restore sessions from disk.
+For session clients, `checkLogin(force = true)` validates the current cookie with
+`/web/session/get_session_info` rather than submitting the password again.
+`rpc()` and `json2()` retain their existing API authentication behavior.
+
+## Two-factor authentication (TOTP)
+
+Supply `onTwoFactorCode = { requestCodeFromUser() }` to `OdooClient.authenticate()`.
+It is a suspending callback and is invoked only when Odoo presents the standard
+`auth_totp` authenticator challenge. Password-only accounts never invoke it.
+The library retains the partial session cookie, reads Odoo's CSRF token, submits
+the six-digit code to `/web/login/totp`, and verifies the final session before
+returning a client. Codes are not cached, logged, or used to generate API keys.
+The callback is not retained for future logins.
+
+Without a callback, a supported pending challenge raises
+`TwoFactorRequiredException`. Standalone controller clients can continue on the
+same instance with `completeTwoFactor(code)` and inspect `twoFactorRequired`.
+`InvalidTwoFactorCodeException` leaves the controller challenge available for an
+explicit retry; malformed codes fail locally. Cancellation and HTTP rate-limit
+responses are propagated; neither codes nor business requests are retried automatically.
+A CSRF/session failure may require a fresh `authenticate(force = true)`.
+
+This supports the standard Odoo authenticator/TOTP form, inspected against Odoo
+18 and 19. SMS codes, email codes, passkeys, SSO, and customized MFA forms are not
+implemented by this flow. The library does not register a trusted device; an
+existing trusted-device cookie supplied by a custom transport may be honored.
 
 ## Context
 
@@ -47,7 +74,7 @@ and `client.getControllers().updateContext(...)` change the same shared defaults
 
 Precedence is server defaults < app overrides < per-call context. Nested values
 such as `allowed_company_ids` are replaced as a whole. Per-call overrides do not
-change shared state. Model calls send the merged context in RPC kwargs or JSON-2
+change shared state. Model calls send the merged context in web-session/RPC kwargs or JSON-2
 parameters, including generic `model.call(..., kwargs = mapOf("context" to ...))`.
 Typical keys include `lang`, `tz`, `allowed_company_ids`, and `active_test`.
 Company IDs select companies already permitted by Odoo; they do not grant access.
@@ -64,7 +91,10 @@ sending a header or arbitrary JSON changes `request.env.context` automatically.
 
 | Method | Result |
 | --- | --- |
-| `authenticate(force = false)` | Web-session UID, cached unless forced. |
+| `authenticate(force = false, onTwoFactorCode = null)` | Web-session UID, cached unless forced; optional suspending TOTP callback. |
+| `completeTwoFactor(code)` | Complete a pending TOTP challenge on this same client. |
+| `twoFactorRequired` | Whether this client has a pending TOTP form. |
+| `checkSession()` | Verify the current session cookie without repeating password login. |
 | `http(path, method = "GET", body = null, headers = {}, auth = "none", context = {})` | Raw `HttpResponse`; body is a string sent verbatim. |
 | `postJson(path, body, auth = "none", headers = {}, context = {})` | Raw `HttpResponse`; serializes a JSON value, including a top-level list. |
 | `jsonRpc(path, params = {}, auth = "none", headers = {}, context = {})` | Unwrapped JSON-RPC result (`Any?`). |
@@ -195,12 +225,16 @@ Send `false` in your values map to clear an Odoo field.
 | Exception | Meaning |
 | --- | --- |
 | `AuthenticationException` | Login failure or HTTP 401. |
+| `TwoFactorRequiredException` | A supported TOTP challenge is waiting for a code. |
+| `InvalidTwoFactorCodeException` | Odoo rejected the code; the pending controller login can be retried explicitly. |
 | `RemoteException` | RPC fault or structured JSON-2 error; exposes `code` and `error`. |
 | `HttpException` | Failed HTTP status without a structured JSON-2 error; exposes `statusCode`. |
 | `ProtocolException` | Invalid response, unexpected type, or oversized response. |
 | `IOException` | Connection, timeout, or TLS failure. |
 | `IllegalArgumentException` | Invalid local arguments or an unsupported value type. |
 
-The first four extend `OdooException`, which extends `IOException`.
+Odoo authentication, remote, HTTP, and protocol errors extend `OdooException`,
+which extends `IOException`. Both 2FA exceptions extend `AuthenticationException`;
+catch them before the general authentication error when prompting or retrying.
 Cancellation retains `CancellationException`. Avoid logging
 `RemoteException.error` indiscriminately; it can contain server information.

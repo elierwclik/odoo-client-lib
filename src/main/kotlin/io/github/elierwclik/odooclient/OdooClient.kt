@@ -30,6 +30,7 @@ class OdooClient private constructor(
     private val contextMutex = Mutex()
     private val requestIds = AtomicLong()
     private val models = ConcurrentHashMap<String, OdooModel>()
+    private var sessionAuthentication = false
     private val controllerClient by lazy {
         check(protocol != OdooProtocol.JSON2) { "Create OdooClient.controllers() with web-login credentials for session routes" }
         OdooControllerClient(this.baseUrl, database, login, secret, transport, contextState)
@@ -54,8 +55,8 @@ class OdooClient private constructor(
     companion object {
         /**
          * Signs in immediately with a web-login password and returns a reusable client
-         * for model RPC and custom controllers. The web UID is reused for model calls,
-         * and the shared transport retains the session cookie for controller calls.
+         * for model calls and custom controllers, both using the same web session.
+         * [onTwoFactorCode] is invoked only when Odoo requests a TOTP authenticator code.
          * Use [rpc] or [json2] when authenticating with an API key instead.
          */
         suspend fun authenticate(
@@ -63,9 +64,11 @@ class OdooClient private constructor(
             protocol: OdooProtocol = OdooProtocol.JSON_RPC,
             transport: HttpTransport = UrlConnectionTransport(),
             context: Map<String, Any?> = emptyMap(),
+            onTwoFactorCode: (suspend () -> String)? = null,
         ): OdooClient {
             val client = rpc(baseUrl, database, login, password, protocol, transport = transport, context = context)
-            client.userId = client.getControllers().authenticate()
+            client.sessionAuthentication = true
+            client.userId = client.getControllers().authenticate(onTwoFactorCode = onTwoFactorCode)
             return client
         }
 
@@ -147,6 +150,15 @@ class OdooClient private constructor(
      * @throws AuthenticationException if login fails or the server returns HTTP 401.
      */
     suspend fun checkLogin(force: Boolean = true): Int {
+        if (sessionAuthentication) {
+            val routes = getControllers()
+            return try {
+                (if (force) routes.checkSession() else routes.authenticate()).also { userId = it }
+            } catch (error: AuthenticationException) {
+                userId = null
+                throw error
+            }
+        }
         if (protocol == OdooProtocol.JSON2) {
             val context = getUserContext(force)
             return (context["uid"] as? Number)?.toInt()?.takeIf { it > 0 }
@@ -178,6 +190,14 @@ class OdooClient private constructor(
         val parameters = if (effectiveContext.isNotEmpty() || "context" in kwargs) {
             kwargs + ("context" to effectiveContext)
         } else kwargs
+        if (sessionAuthentication) {
+            return try {
+                getControllers().callModel(model, method, args, parameters)
+            } catch (error: AuthenticationException) {
+                userId = null
+                throw error
+            }
+        }
         if (protocol == OdooProtocol.JSON2) {
             require(args.isEmpty()) { "JSON-2 requires named arguments" }
             return requestJson2("$baseUrl/json/2/$model/$method", parameters)

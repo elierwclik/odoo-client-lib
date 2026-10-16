@@ -8,7 +8,9 @@ package io.github.elierwclik.odooclient
 import java.io.IOException
 
 open class OdooException(message: String, cause: Throwable? = null) : IOException(message, cause)
-class AuthenticationException(message: String = "Odoo authentication failed") : OdooException(message)
+open class AuthenticationException(message: String = "Odoo authentication failed") : OdooException(message)
+class TwoFactorRequiredException : AuthenticationException("A two-factor authentication code is required")
+class InvalidTwoFactorCodeException : AuthenticationException("The two-factor authentication code was rejected")
 class HttpException(val statusCode: Int) : OdooException("Odoo returned HTTP $statusCode")
 class RemoteException(val code: Int?, val error: Any?) : OdooException("Odoo remote call failed (code=$code)")
 class ProtocolException(message: String, cause: Throwable? = null) : OdooException(message, cause)

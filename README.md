@@ -47,8 +47,9 @@ are ignored by Git.
 ## Run the example
 
 Open **`example/`** in Android Studio, select **app**, and click **Run**.
-Enter your Odoo URL, database, username, and password or RPC API key,
-then tap **Connect and view contacts**.
+Enter your Odoo URL, database, username, and password (or select the API key
+option), then tap **Connect and view contacts**. Accounts with TOTP enabled
+prompt for the authenticator code.
 
 The example imports **`example/app/libs/odoo-client.aar`**. This file is included
 so the app can be built independently of the library source project.
@@ -71,12 +72,17 @@ val client = OdooClient.authenticate(
     database = "my_database",
     login = "user@example.com",
     password = passwordFromUser,
+    onTwoFactorCode = { requestCodeFromUser() }, // Suspend while the app asks for a TOTP code.
 )
 val contacts = client.getModel("res.partner").searchRead(
     fields = listOf("name", "email"),
     limit = 10,
 )
 ```
+
+`authenticate()` uses the same web session for models and controllers, including
+accounts with authenticator/TOTP enabled. The callback is skipped for accounts
+without 2FA. Use `rpc()` or `json2()` for API keys; see [2FA details](docs/api.md#two-factor-authentication-totp).
 
 Supports XML-RPC, JSON-RPC, JSON-2, custom HTTP/JSON-RPC controllers with optional
 web-session authentication, coroutine requests, CRUD helpers,

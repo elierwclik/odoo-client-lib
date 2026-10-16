@@ -14,4 +14,12 @@
     <string name="network_error">Connection failed. Check the URL, network, and server certificate.</string>
     <string name="no_contacts">Connected successfully. No contacts are available.</string>
     <string name="connected_as">Connected as user %1$d</string>
+    <string name="use_api_key">Use an RPC API key instead of a password</string>
+    <string name="two_factor_title">Two-factor authentication</string>
+    <string name="two_factor_instructions">Enter the six-digit code from your authenticator app.</string>
+    <string name="two_factor_code">Authentication code</string>
+    <string name="verify_code">Verify</string>
+    <string name="two_factor_code_format">Enter exactly six digits.</string>
+    <string name="invalid_two_factor_code">Code rejected. Connect again using the latest authenticator code.</string>
+    <string name="login_cancelled">Login cancelled.</string>
 </resources>

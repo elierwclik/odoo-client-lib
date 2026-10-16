@@ -44,7 +44,7 @@ the AAR and this configuration. Open its root directory in Android Studio,
 select `app`, and click Run. It requests credentials and displays contacts;
 see its README for local server and emulator settings.
 
-## First JSON-RPC request
+## First authenticated request
 
 ```kotlin
 import io.github.elierwclik.odooclient.OdooClient
@@ -55,6 +55,7 @@ suspend fun fetchContacts(passwordFromUser: String): List<Map<String, Any?>> {
         database = "my_database",
         login = "user@example.com",
         password = passwordFromUser,
+        onTwoFactorCode = { requestCodeFromUser() },
     )
     return client.getModel("res.partner").searchRead(
         fields = listOf("name", "email"),
@@ -63,13 +64,19 @@ suspend fun fetchContacts(passwordFromUser: String): List<Map<String, Any?>> {
 }
 ```
 
+`requestCodeFromUser()` is your app's suspending UI function, called only for
+standard authenticator/TOTP challenges. The example app includes a code dialog.
+Authentication creates a web session used by both models and controllers; no API
+key is needed for this login. See [two-factor authentication](api.md#two-factor-authentication-totp).
+
 Call this function inside a coroutine owned by your Activity, ViewModel, or
 repository. Network operations use `Dispatchers.IO`. Reuse the client instance
 when you want to retain authentication and cookies.
 
-For XML-RPC, add `protocol = OdooProtocol.XML_RPC` and import
-`io.github.elierwclik.odooclient.OdooProtocol`. HTTP or HTTPS is selected by
-`baseUrl`. Provide the server's base URL without `/jsonrpc` or `/xmlrpc`.
+For external XML-RPC, use `OdooClient.rpc(..., protocol = OdooProtocol.XML_RPC)`
+with an API key when the account has 2FA enabled, and import
+`io.github.elierwclik.odooclient.OdooProtocol`. The `authenticate()` factory uses
+web-session model calls. HTTP or HTTPS is selected by `baseUrl`. Provide the server's base URL without `/jsonrpc` or `/xmlrpc`.
 
 ## JSON-2
 

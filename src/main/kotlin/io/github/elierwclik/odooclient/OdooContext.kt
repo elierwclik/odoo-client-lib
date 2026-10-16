@@ -8,6 +8,7 @@ internal class OdooContext(initial: Map<String, Any?> = emptyMap()) {
     private var defaults: Map<String, Any?>? = null
     private var overrides = copy(initial)
 
+    @Synchronized fun clearServer() { defaults = null }
     @Synchronized fun server(): Map<String, Any?>? = defaults?.let(::copy)
     @Synchronized fun setServer(values: Map<String, Any?>) { defaults = copy(values) }
     @Synchronized fun update(values: Map<String, Any?>) { overrides = overrides + copy(values) }

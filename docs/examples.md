@@ -48,6 +48,45 @@ partners.unlink(listOf(newId))
 
 Use a server method if these actions must share one transaction.
 
+## Two-factor login
+
+```kotlin
+val client = OdooClient.authenticate(
+    baseUrl = "https://odoo.example.com",
+    database = databaseFromUser,
+    login = loginFromUser,
+    password = passwordFromUser,
+    onTwoFactorCode = { requestCodeFromUser() }, // Your suspending authenticator-code dialog.
+)
+// Both calls use the verified web session; no API key is needed.
+val contacts = client.getModel("res.partner").searchRead(limit = 10)
+val result = client.getControllers().jsonRpc("/my/private_route", auth = "user")
+```
+
+For a UI that needs to keep a pending challenge and retry a rejected code, keep
+one standalone controller client and separate the steps:
+
+```kotlin
+val routes = OdooClient.controllers(baseUrl, database, login, password)
+try {
+    routes.authenticate()
+} catch (_: TwoFactorRequiredException) {
+    // Retain routes in your ViewModel while the UI asks for the code.
+}
+// On the Verify button, inside a coroutine:
+try {
+    routes.completeTwoFactor(codeFromUser)
+} catch (_: InvalidTwoFactorCodeException) {
+    // Show an error; the next Verify action can submit a new code on routes.
+}
+```
+
+Import the exception classes from `io.github.elierwclik.odooclient`.
+For the factory callback, a rejected code propagates to the caller; starting
+`OdooClient.authenticate(...)` again creates a new login. Do not automatically
+retry OTP codes or a failed business operation. The example app handles code
+entry, cancellation, and rejected-code feedback.
+
 ## Context and metadata
 
 ```kotlin
@@ -236,7 +275,7 @@ val result = client.getControllers().jsonRpc(
 )
 ```
 
-This uses the login UID for model RPC and the existing cookie for controllers.
+This uses the same verified session cookie for models and controllers.
 Reuse this client per account/server; creating another client starts another login.
 Session expiration handling remains explicit, as described above.
 

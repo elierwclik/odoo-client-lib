@@ -207,10 +207,12 @@ class OdooControllerClientTest {
         val transport = FakeTransport {
             when {
                 it.url.endsWith("/authenticate") -> result(it, mapOf("uid" to 7))
-                it.url.endsWith("/jsonrpc") -> {
+                it.url.contains("/web/dataset/call_kw/") -> {
                     val params = stringMap(envelope(it)["params"])
-                    assertEquals("execute_kw", params["method"])
-                    assertEquals(listOf("db", 7, "secret"), (params["args"] as List<*>).take(3))
+                    assertEquals("search_read", params["method"])
+                    assertEquals("res.partner", params["model"])
+                    assertFalse(params.containsKey("context"))
+                    assertFalse(it.body!!.contains("secret"))
                     result(it, emptyList<Any?>())
                 }
                 else -> result(it, true)

@@ -19,8 +19,11 @@ to any location; it includes its own Gradle Wrapper.
    unnecessary; Java and Kotlin compile to Java 17 bytecode using the selected JDK.
 3. Wait for synchronization, select **app** and an Android 8.0+ device/emulator,
    then click **▶ Run**.
-4. Enter your Odoo URL, database, username, and password or RPC API key.
+4. Enter your Odoo URL, database, username, and password. For an API key, enable
+   **Use an RPC API key instead of a password**.
 5. Tap **Connect and view contacts** to fetch up to ten contacts.
+   If Odoo requests two-factor authentication, enter the six-digit code from
+   your authenticator app in the dialog. No API key is required for this login.
    The example does not create or update records.
 
 If Odoo runs on your computer and you use the Android emulator, your development
@@ -72,6 +75,7 @@ val client = OdooClient.authenticate(
     database = "my_database",
     login = "user@example.com",
     password = passwordFromUser,
+    onTwoFactorCode = { requestCodeFromUser() },
 )
 val contacts = client.getModel("res.partner").searchRead(
     fields = listOf("name", "email"),
@@ -79,9 +83,11 @@ val contacts = client.getModel("res.partner").searchRead(
 )
 ```
 
-`authenticate()` signs in with a web-login password. Reuse this client across
-the app; `client.getControllers()` shares its session cookie. For RPC API keys,
-use `OdooClient.rpc(...)`, as the example app does to support both credential types.
+`authenticate()` signs in with a web-login password and optional TOTP code.
+`requestCodeFromUser()` is a suspending UI function, implemented by the example's
+code dialog. Reuse this client across the app: both models and
+`client.getControllers()` use its verified session cookie. For RPC API keys, use
+`OdooClient.rpc(...)`; the example's checkbox selects that mode.
 
 ## Credits
 
