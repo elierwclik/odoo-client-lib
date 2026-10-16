@@ -23,6 +23,7 @@ class OdooClient private constructor(
     private val secret: String,
     initialUserId: Int?,
     private val transport: HttpTransport,
+    private val contextState: OdooContext = OdooContext(),
 ) {
     internal val baseUrl: String = baseUrl.trimEnd('/')
     private val authMutex = Mutex()
@@ -31,9 +32,8 @@ class OdooClient private constructor(
     private val models = ConcurrentHashMap<String, OdooModel>()
     private val controllerClient by lazy {
         check(protocol != OdooProtocol.JSON2) { "Create OdooClient.controllers() with web-login credentials for session routes" }
-        OdooControllerClient(this.baseUrl, database, login, secret, transport)
+        OdooControllerClient(this.baseUrl, database, login, secret, transport, contextState)
     }
-    private var userContext: Map<String, Any?>? = null
     @Volatile var userId: Int? = initialUserId
         private set
 
@@ -52,11 +52,29 @@ class OdooClient private constructor(
     }
 
     companion object {
+        /**
+         * Signs in immediately with a web-login password and returns a reusable client
+         * for model RPC and custom controllers. The web UID is reused for model calls,
+         * and the shared transport retains the session cookie for controller calls.
+         * Use [rpc] or [json2] when authenticating with an API key instead.
+         */
+        suspend fun authenticate(
+            baseUrl: String, database: String, login: String, password: String,
+            protocol: OdooProtocol = OdooProtocol.JSON_RPC,
+            transport: HttpTransport = UrlConnectionTransport(),
+            context: Map<String, Any?> = emptyMap(),
+        ): OdooClient {
+            val client = rpc(baseUrl, database, login, password, protocol, transport = transport, context = context)
+            client.userId = client.getControllers().authenticate()
+            return client
+        }
+
         /** Creates a custom-route client. Omit credentials for public routes. */
         fun controllers(
             baseUrl: String, database: String? = null, login: String? = null,
             password: String? = null, transport: HttpTransport = UrlConnectionTransport(),
-        ): OdooControllerClient = OdooControllerClient(baseUrl, database, login, password, transport)
+            context: Map<String, Any?> = emptyMap(),
+        ): OdooControllerClient = OdooControllerClient(baseUrl, database, login, password, transport, OdooContext(context))
 
         /**
          * Creates a JSON-RPC or XML-RPC connection with lazy authentication.
@@ -68,22 +86,25 @@ class OdooClient private constructor(
             baseUrl: String, database: String, login: String, password: String,
             protocol: OdooProtocol = OdooProtocol.JSON_RPC, userId: Int? = null,
             transport: HttpTransport = UrlConnectionTransport(),
+            context: Map<String, Any?> = emptyMap(),
         ): OdooClient {
             require(protocol != OdooProtocol.JSON2) { "Use json2() for API-key authentication" }
-            return OdooClient(baseUrl, protocol, database, login, password, userId, transport)
+            return OdooClient(baseUrl, protocol, database, login, password, userId, transport, OdooContext(context))
         }
 
         /** Creates a JSON-2 API-key connection; [database] is optional if the host selects it. */
         fun json2(
             baseUrl: String, apiKey: String, database: String? = null,
             transport: HttpTransport = UrlConnectionTransport(),
-        ): OdooClient = OdooClient(baseUrl, OdooProtocol.JSON2, database, null, apiKey, null, transport)
+            context: Map<String, Any?> = emptyMap(),
+        ): OdooClient = OdooClient(baseUrl, OdooProtocol.JSON2, database, null, apiKey, null, transport, OdooContext(context))
 
         /** Migration shortcut matching the original library's six protocol names and port 8069. */
         fun getConnection(
             hostname: String, database: String?, login: String? = null, password: String,
             protocol: String = "xmlrpc", port: Int = 8069, userId: Int? = null,
             transport: HttpTransport = UrlConnectionTransport(),
+            context: Map<String, Any?> = emptyMap(),
         ): OdooClient {
             val type = when (protocol) {
                 "xmlrpc", "xmlrpcs" -> OdooProtocol.XML_RPC
@@ -94,9 +115,15 @@ class OdooClient private constructor(
             val scheme = if (protocol.endsWith('s')) "https" else "http"
             require(port in 1..65535) { "Invalid server port" }
             val url = URI(scheme, null, hostname, port, null, null, null).toString()
-            return OdooClient(url, type, database, login, password, userId, transport)
+            return OdooClient(url, type, database, login, password, userId, transport, OdooContext(context))
         }
     }
+
+    /** Effective user defaults plus app overrides (a detached snapshot). */
+    val context: Map<String, Any?> get() = contextState.merged()
+
+    /** Updates shared app defaults; per-call context takes precedence. */
+    fun updateContext(values: Map<String, Any?>) { contextState.update(values) }
 
     /** Returns a cached model proxy without making a network request. */
     fun getModel(name: String): OdooModel {
@@ -138,21 +165,25 @@ class OdooClient private constructor(
 
     /** Returns a copy of the cached user context, refreshing it from Odoo when [force] is true. */
     suspend fun getUserContext(force: Boolean = false): Map<String, Any?> = contextMutex.withLock {
-        if (!force) userContext?.let { return@withLock it.toMap() }
-        userContext = null
+        if (!force) contextState.server()?.let { return@withLock it }
         val context = stringMap(getModel("res.users").call("context_get"))
-        userContext = context
+        contextState.setServer(context)
         context.toMap()
     }
 
     internal suspend fun callModel(model: String, method: String, args: List<Any?>, kwargs: Map<String, Any?>): Any? {
         validateName(method)
+        val explicitContext = kwargs["context"]?.let(::stringMap).orEmpty()
+        val effectiveContext = contextState.merged(explicitContext)
+        val parameters = if (effectiveContext.isNotEmpty() || "context" in kwargs) {
+            kwargs + ("context" to effectiveContext)
+        } else kwargs
         if (protocol == OdooProtocol.JSON2) {
             require(args.isEmpty()) { "JSON-2 requires named arguments" }
-            return requestJson2("$baseUrl/json/2/$model/$method", kwargs)
+            return requestJson2("$baseUrl/json/2/$model/$method", parameters)
         }
         val uid = checkLogin(false)
-        return callService("object", "execute_kw", listOf(database, uid, secret, model, method, args, kwargs))
+        return callService("object", "execute_kw", listOf(database, uid, secret, model, method, args, parameters))
     }
 
     internal suspend fun callService(service: String, method: String, args: List<Any?>): Any? {

@@ -67,18 +67,21 @@ In [`MainActivity.kt`](app/src/main/kotlin/example/odoo/MainActivity.kt):
 import io.github.elierwclik.odooclient.OdooClient
 
 // Run inside a coroutine.
-val client = OdooClient.rpc(
+val client = OdooClient.authenticate(
     baseUrl = "https://odoo.example.com",
     database = "my_database",
     login = "user@example.com",
     password = passwordFromUser,
 )
-client.checkLogin()
 val contacts = client.getModel("res.partner").searchRead(
     fields = listOf("name", "email"),
     limit = 10,
 )
 ```
+
+`authenticate()` signs in with a web-login password. Reuse this client across
+the app; `client.getControllers()` shares its session cookie. For RPC API keys,
+use `OdooClient.rpc(...)`, as the example app does to support both credential types.
 
 ## Credits
 

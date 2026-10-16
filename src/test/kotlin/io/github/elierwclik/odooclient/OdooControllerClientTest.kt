@@ -72,8 +72,8 @@ class OdooControllerClientTest {
             if (it.url.endsWith("/authenticate")) result(it, mapOf("uid" to 7)) else HttpResponse(200, "ok")
         }
         val controller = client(transport)
-        controller.http("/private", authenticated = true)
-        controller.http("/private", authenticated = true)
+        controller.http("/private", auth = "user")
+        controller.http("/private", auth = "user")
         assertEquals(3, transport.requests.size)
         val login = transport.requests.first()
         assertEquals("https://example.test/odoo/web/session/authenticate", login.url)
@@ -83,7 +83,7 @@ class OdooControllerClientTest {
 
     @Test fun authenticatedJsonRpcUsesSessionBeforeController(): Unit = runBlocking {
         val transport = FakeTransport { result(it, if (it.url.endsWith("/authenticate")) mapOf("uid" to 7) else listOf(1, 2)) }
-        assertEquals(listOf(1, 2), client(transport).jsonRpc("/private/json", authenticated = true))
+        assertEquals(listOf(1, 2), client(transport).jsonRpc("/private/json", auth = "user"))
         assertEquals(2, transport.requests.size)
         assertTrue(transport.requests.last().url.endsWith("/private/json"))
     }
@@ -95,7 +95,7 @@ class OdooControllerClientTest {
             else HttpResponse(200, "ok")
         }
         val controller = client(transport)
-        (1..20).map { async { controller.http("/private", authenticated = true) } }.awaitAll()
+        (1..20).map { async { controller.http("/private", auth = "user") } }.awaitAll()
         assertEquals(1, logins)
         assertEquals(21, transport.requests.size)
     }
@@ -112,7 +112,7 @@ class OdooControllerClientTest {
 
     @Test fun accessDeniedOnLoginIsAnAuthenticationError(): Unit = runBlocking {
         val transport = FakeTransport { fault(it, name = "odoo.exceptions.AccessDenied") }
-        assertThrowsSuspend<AuthenticationException> { client(transport).http("/private", authenticated = true) }
+        assertThrowsSuspend<AuthenticationException> { client(transport).http("/private", auth = "user") }
         assertEquals(1, transport.requests.size)
     }
 
@@ -126,10 +126,10 @@ class OdooControllerClientTest {
             }
         }
         val controller = client(transport)
-        assertThrowsSuspend<AuthenticationException> { controller.jsonRpc("/write", authenticated = true) }
+        assertThrowsSuspend<AuthenticationException> { controller.jsonRpc("/write", auth = "user") }
         assertEquals(1, calls)
         assertNull(controller.userId)
-        assertEquals(true, controller.jsonRpc("/write", authenticated = true))
+        assertEquals(true, controller.jsonRpc("/write", auth = "user"))
         assertEquals(4, transport.requests.size)
     }
 
@@ -138,7 +138,7 @@ class OdooControllerClientTest {
             if (it.url.endsWith("/authenticate")) result(it, mapOf("uid" to 7)) else HttpResponse(401, "denied")
         }
         val controller = client(transport)
-        assertEquals(401, controller.http("/private", authenticated = true).statusCode)
+        assertEquals(401, controller.http("/private", auth = "user").statusCode)
         assertNull(controller.userId)
     }
 
@@ -183,11 +183,11 @@ class OdooControllerClientTest {
         val transport = FakeTransport { error("Unexpected network request") }
         val controller = client(transport)
         for (path in listOf("https://evil.test/path", "//evil.test/path", "/../escape", "/%2e%2e/escape", "/route#fragment")) {
-            assertThrowsSuspend<IllegalArgumentException> { controller.http(path, authenticated = true) }
-            assertThrowsSuspend<IllegalArgumentException> { controller.jsonRpc(path, authenticated = true) }
+            assertThrowsSuspend<IllegalArgumentException> { controller.http(path, auth = "user") }
+            assertThrowsSuspend<IllegalArgumentException> { controller.jsonRpc(path, auth = "user") }
         }
         assertThrowsSuspend<IllegalArgumentException> {
-            OdooClient.controllers("https://example.test", transport = transport).http("/private", authenticated = true)
+            OdooClient.controllers("https://example.test", transport = transport).http("/private", auth = "user")
         }
         assertThrowsSuspend<IllegalArgumentException> { controller.http("/route", body = "GET body") }
         assertThrows(IllegalArgumentException::class.java) { OdooClient.controllers("https://user:secret@example.test") }
@@ -201,6 +201,37 @@ class OdooControllerClientTest {
         assertEquals(1, headers.keys.count { it.equals("Content-Type", ignoreCase = true) })
         assertEquals("application/json; charset=utf-8", headers["Content-Type"])
         assertEquals("value", headers["X-Test"])
+    }
+
+    @Test fun authenticatedClientSharesLoginWithModelsAndControllers(): Unit = runBlocking {
+        val transport = FakeTransport {
+            when {
+                it.url.endsWith("/authenticate") -> result(it, mapOf("uid" to 7))
+                it.url.endsWith("/jsonrpc") -> {
+                    val params = stringMap(envelope(it)["params"])
+                    assertEquals("execute_kw", params["method"])
+                    assertEquals(listOf("db", 7, "secret"), (params["args"] as List<*>).take(3))
+                    result(it, emptyList<Any?>())
+                }
+                else -> result(it, true)
+            }
+        }
+        val client = OdooClient.authenticate("https://example.test", "db", "user", "secret", transport = transport)
+        assertEquals(7, client.userId)
+        assertEquals(7, client.checkLogin(force = false))
+        assertEquals(7, client.getControllers().userId)
+        client.getModel("res.partner").searchRead(fields = listOf("name"))
+        repeat(2) { assertEquals(true, client.getControllers().jsonRpc("/private", auth = "user")) }
+        assertEquals(4, transport.requests.size)
+        assertEquals(1, transport.requests.count { it.url.endsWith("/authenticate") })
+    }
+
+    @Test fun authenticatedClientRejectsInvalidCredentialsImmediately(): Unit = runBlocking {
+        val transport = FakeTransport { result(it, mapOf("uid" to false)) }
+        assertThrowsSuspend<AuthenticationException> {
+            OdooClient.authenticate("https://example.test", "db", "user", "wrong", transport = transport)
+        }
+        assertEquals(1, transport.requests.size)
     }
 
     @Test fun rpcClientExposesCachedControllerClientAndSeparatesWebLogin(): Unit = runBlocking {
@@ -236,11 +267,88 @@ class OdooControllerClientTest {
         }
         server.start()
         try {
-            val controller = OdooClient.controllers("http://127.0.0.1:${server.address.port}", "db", "user", "secret")
-            assertEquals(202, controller.postJson("/private/http", emptyList<Any?>(), authenticated = true).statusCode)
-            assertEquals(true, controller.jsonRpc("/private/json", authenticated = true))
+            val client = OdooClient.authenticate("http://127.0.0.1:${server.address.port}", "db", "user", "secret")
+            val controller = client.getControllers()
+            assertEquals(202, controller.postJson("/private/http", emptyList<Any?>(), auth = "public").statusCode)
+            assertEquals(true, controller.jsonRpc("/private/json", auth = "user"))
             assertEquals(2, cookies.size)
             assertTrue(cookies.all { it.orEmpty().contains("session_id=controller-session") })
         } finally { server.stop(0) }
     }
+    @Test fun authModesDefaultToNoneAndOnlyUserLogsIn(): Unit = runBlocking {
+        val transport = FakeTransport {
+            if (it.body?.contains("\"jsonrpc\"") == true) {
+                result(it, if (it.url.endsWith("/authenticate")) mapOf("uid" to 7) else true)
+            } else HttpResponse(200, "ok")
+        }
+        val routes = client(transport)
+        routes.jsonRpc("/none")
+        routes.jsonRpc("/public", auth = "public")
+        assertEquals(2, transport.requests.size)
+        assertNull(routes.userId)
+        routes.jsonRpc("/user", auth = "user")
+        routes.jsonRpc("/public", auth = "public")
+        routes.http("/user", auth = "user")
+        routes.postJson("/user", emptyList<Any?>(), auth = "user")
+        assertEquals(1, transport.requests.count { it.url.endsWith("/authenticate") })
+    }
+
+    @Test fun invalidAuthFailsBeforeNetworkForEveryControllerMethod(): Unit = runBlocking {
+        val transport = FakeTransport { error("Unexpected request") }
+        val routes = client(transport)
+        assertThrowsSuspend<IllegalArgumentException> { routes.jsonRpc("/route", auth = "admin") }
+        assertThrowsSuspend<IllegalArgumentException> { routes.http("/route", auth = "admin") }
+        assertThrowsSuspend<IllegalArgumentException> { routes.postJson("/route", emptyMap<String, Any?>(), auth = "admin") }
+        assertTrue(transport.requests.isEmpty())
+    }
+
+    @Test fun sessionContextIsSharedAndPerCallOverridesStayLocal(): Unit = runBlocking {
+        val transport = FakeTransport {
+            result(it, if (it.url.endsWith("/authenticate")) mapOf(
+                "uid" to 7, "user_context" to mapOf("lang" to "en_US", "tz" to "UTC", "allowed_company_ids" to listOf(1)),
+            ) else true)
+        }
+        val client = OdooClient.authenticate("https://example.test", "db", "user", "secret",
+            transport = transport, context = mapOf("lang" to "es_ES", "allowed_company_ids" to listOf(2, 1)))
+        val routes = client.getControllers()
+        client.updateContext(mapOf("active_test" to false))
+        routes.updateContext(mapOf("tz" to "America/Toronto"))
+        routes.jsonRpc("/route", params = mapOf("context" to mapOf("lang" to "de_DE")),
+            auth = "user", context = mapOf("lang" to "fr_FR"))
+        val sent = stringMap(stringMap(envelope(transport.requests.last())["params"])["context"])
+        assertEquals(mapOf("lang" to "fr_FR", "tz" to "America/Toronto",
+            "allowed_company_ids" to listOf(2, 1), "active_test" to false), sent)
+        assertEquals("es_ES", client.context["lang"])
+        assertEquals(client.context, routes.context)
+        assertEquals("en_US", client.getUserContext()["lang"])
+        assertEquals(2, transport.requests.size)
+    }
+
+    @Test fun httpContextSetsLanguageAndPreservesRawJsonArrays(): Unit = runBlocking {
+        val transport = FakeTransport { HttpResponse(200, "ok") }
+        val routes = OdooClient.controllers("https://example.test", transport = transport,
+            context = mapOf("lang" to "es_ES", "allowed_company_ids" to listOf(1, 2)))
+        val body = listOf(mapOf("id" to 1))
+        routes.postJson("/route", body, auth = "public", context = mapOf("lang" to "fr_FR"))
+        assertEquals(body, JsonCodec.decode(transport.requests.last().body!!))
+        assertEquals("fr-FR", transport.requests.last().headers["Accept-Language"])
+        routes.http("/route", headers = mapOf("accept-language" to "de-DE"))
+        assertEquals(1, transport.requests.last().headers.keys.count { it.equals("Accept-Language", true) })
+        assertEquals("de-DE", transport.requests.last().headers["accept-language"])
+    }
+
+    @Suppress("DEPRECATION")
+    @Test fun legacyBooleanAuthStillWorks(): Unit = runBlocking {
+        val transport = FakeTransport {
+            if (it.body?.contains("\"jsonrpc\"") == true) {
+                result(it, if (it.url.endsWith("/authenticate")) mapOf("uid" to 7) else true)
+            } else HttpResponse(200, "ok")
+        }
+        val routes = client(transport)
+        routes.jsonRpc("/route", authenticated = true)
+        routes.http("/route", authenticated = true)
+        routes.postJson("/route", emptyList<Any?>(), authenticated = false)
+        assertEquals(1, transport.requests.count { it.url.endsWith("/authenticate") })
+    }
+
 }

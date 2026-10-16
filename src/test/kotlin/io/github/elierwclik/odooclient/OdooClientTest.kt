@@ -275,6 +275,42 @@ class OdooClientTest {
         assertThrows(IllegalArgumentException::class.java) { OdooClient.json2("https://example.test", "key\r\nInjected") }
     }
 
+    @Test fun modelContextMergesDefaultsAndPerCallOverridesForRpcAndJson2(): Unit = runBlocking {
+        for (json2 in listOf(false, true)) {
+            val transport = FakeTransport { if (json2) HttpResponse(200, "[]") else rpcResponse(it, emptyList<Int>()) }
+            val defaults = mapOf("lang" to "es_ES", "tz" to "UTC", "allowed_company_ids" to listOf(2, 1))
+            val client = if (json2) OdooClient.json2("https://example.test", "key", transport = transport, context = defaults)
+                else OdooClient.rpc("https://example.test", "db", "user", "secret", userId = 7,
+                    transport = transport, context = defaults)
+            client.updateContext(mapOf("active_test" to false))
+            client.getModel("res.partner").search(context = mapOf("lang" to "fr_FR"))
+            val payload = if (json2) stringMap(JsonCodec.decode(transport.requests.last().body!!))
+                else stringMap((params(transport.requests.last())["args"] as List<*>)[6])
+            assertEquals(defaults + mapOf("lang" to "fr_FR", "active_test" to false), payload["context"])
+            assertEquals("es_ES", client.context["lang"])
+            client.getModel("res.partner").call("custom_method")
+            val custom = if (json2) stringMap(JsonCodec.decode(transport.requests.last().body!!))
+                else stringMap((params(transport.requests.last())["args"] as List<*>)[6])
+            assertEquals(client.context, custom["context"])
+        }
+    }
+
+    @Test fun refreshedUserContextPreservesAppOverridesAndSnapshotsAreDetached(): Unit = runBlocking {
+        val companies = mutableListOf(2, 1)
+        val transport = FakeTransport { rpcResponse(it, mapOf("lang" to "en_US", "tz" to "UTC")) }
+        val client = OdooClient.rpc("https://example.test", "db", "user", "secret", userId = 7,
+            transport = transport, context = mapOf("lang" to "es_ES", "allowed_company_ids" to companies))
+        companies.clear()
+        assertEquals(listOf(2, 1), client.context["allowed_company_ids"])
+        @Suppress("UNCHECKED_CAST")
+        (client.context["allowed_company_ids"] as MutableList<Int>).clear()
+        assertEquals(listOf(2, 1), client.context["allowed_company_ids"])
+        client.getUserContext(force = true)
+        assertEquals("es_ES", client.context["lang"])
+        assertEquals("UTC", client.context["tz"])
+        assertEquals(listOf(2, 1), client.context["allowed_company_ids"])
+    }
+
     private fun xmlResult(value: String): String = "<methodResponse><params><param><value>$value</value></param></params></methodResponse>"
 }
 

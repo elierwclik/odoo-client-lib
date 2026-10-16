@@ -7,14 +7,17 @@ Network methods are `suspend`. See [examples.md](examples.md) for usage.
 
 | Method | Behavior |
 | --- | --- |
-| `rpc(baseUrl, database, login, password, protocol, userId, transport)` | RPC client; `protocol` defaults to `JSON_RPC`. Optional `userId` skips the first login when already known. |
-| `json2(baseUrl, apiKey, database, transport)` | JSON-2 client authenticated with an API key; `database` is optional. |
-| `controllers(baseUrl, database = null, login = null, password = null, transport)` | Custom-route client; no credentials needed for public routes. |
-| `getConnection(hostname, database, login, password, protocol, port, userId, transport)` | Migration shortcut; default port 8069 and protocol `xmlrpc`. |
+| `authenticate(baseUrl, database, login, password, protocol, transport, context)` | Signs in immediately with a web-login password; returns a shared client for model RPC and session controllers. |
+| `rpc(baseUrl, database, login, password, protocol, userId, transport, context)` | RPC client; `protocol` defaults to `JSON_RPC`. Optional `userId` skips the first login when already known. |
+| `json2(baseUrl, apiKey, database, transport, context)` | JSON-2 client authenticated with an API key; `database` is optional. |
+| `controllers(baseUrl, database = null, login = null, password = null, transport, context)` | Custom-route client; no credentials needed for public routes. |
+| `getConnection(hostname, database, login, password, protocol, port, userId, transport, context)` | Migration shortcut; default port 8069 and protocol `xmlrpc`. |
 | `getModel(name)` | Cached model proxy; no network request. |
 | `getService(name)` | RPC service proxy such as `common`, `object`, or `db`; unavailable for JSON-2. |
 | `checkLogin(force = true): Int` | Validates credentials and returns the UID; throws on failure. |
 | `getUserContext(force = false): Map<String, Any?>` | Fetches and caches user context; `force` refreshes it. |
+| `context` | Snapshot of user defaults merged with shared app overrides. |
+| `updateContext(values)` | Merge app overrides for future model and controller calls. |
 | `getControllers(): OdooControllerClient` | Cached custom-route client sharing this RPC client's transport and credentials. |
 
 `baseUrl` supports a path prefix, but must not contain embedded credentials,
@@ -26,14 +29,45 @@ The `userId` property holds the authenticated UID for RPC. For JSON-2 it remains
 `null`; `checkLogin()` retrieves the UID through `res.users/context_get`.
 Credentials are immutable: create a new client to change them.
 
+Create one client with `OdooClient.authenticate(...)` per account/server and reuse
+it throughout the app. It logs in through `/web/session/authenticate`, retains the
+cookie in the shared transport, and reuses the returned UID for model RPC without
+a second login. It requires a web-login password; use `rpc()` or `json2()` for API
+keys. No extra `checkLogin()` is necessary. Sessions are kept in memory by the
+default transport; this factory does not restore or validate a previous session.
+
+## Context
+
+All client factories accept `context = mapOf(...)`. `authenticate()` captures the
+server's `user_context` from web login. For clients created with `rpc()` or
+`json2()`, call `getUserContext()` to load user defaults when needed.
+`getUserContext(force = true)` refreshes server defaults without discarding app
+overrides. `client.context` is a detached snapshot; `client.updateContext(...)`
+and `client.getControllers().updateContext(...)` change the same shared defaults.
+
+Precedence is server defaults < app overrides < per-call context. Nested values
+such as `allowed_company_ids` are replaced as a whole. Per-call overrides do not
+change shared state. Model calls send the merged context in RPC kwargs or JSON-2
+parameters, including generic `model.call(..., kwargs = mapOf("context" to ...))`.
+Typical keys include `lang`, `tz`, `allowed_company_ids`, and `active_test`.
+Company IDs select companies already permitted by Odoo; they do not grant access.
+
+JSON-RPC controllers receive `params.context`; the explicit `context` argument
+wins over `params["context"]`. Custom controllers must accept and apply context
+if their Odoo dispatcher does not do so. Verify this for your server version.
+Raw `http()` and `postJson()` set `Accept-Language` from `lang`, unless the caller
+supplies that header. They preserve the body: other context keys must be carried
+in the custom route's own payload and applied by that route. Do not assume
+sending a header or arbitrary JSON changes `request.env.context` automatically.
+
 ## OdooControllerClient
 
 | Method | Result |
 | --- | --- |
 | `authenticate(force = false)` | Web-session UID, cached unless forced. |
-| `http(path, method = "GET", body = null, headers = {}, authenticated = false)` | Raw `HttpResponse`; body is a string sent verbatim. |
-| `postJson(path, body, authenticated = false, headers = {})` | Raw `HttpResponse`; serializes a JSON value, including a top-level list. |
-| `jsonRpc(path, params = {}, authenticated = false, headers = {})` | Unwrapped JSON-RPC result (`Any?`). |
+| `http(path, method = "GET", body = null, headers = {}, auth = "none", context = {})` | Raw `HttpResponse`; body is a string sent verbatim. |
+| `postJson(path, body, auth = "none", headers = {}, context = {})` | Raw `HttpResponse`; serializes a JSON value, including a top-level list. |
+| `jsonRpc(path, params = {}, auth = "none", headers = {}, context = {})` | Unwrapped JSON-RPC result (`Any?`). |
 
 Paths start with `/` and refer to the configured server. A base URL path prefix
 is preserved; query strings are allowed. Absolute URLs, network-path references,
@@ -41,13 +75,19 @@ fragments, and path traversal are rejected before authentication. Methods never
 send credentials to another origin. `postJson()` and `jsonRpc()` set JSON content
 type; `http()` uses the headers/body supplied by the caller.
 
-`authenticated = true` authenticates lazily through `/web/session/authenticate`
+`auth` accepts Odoo's route names: `"none"` (default), `"public"`, and `"user"`.
+`"none"` and `"public"` skip automatic login and retain existing cookies. Odoo's
+server route decides whether to use no user, the public user, or the session user;
+this argument cannot change the route's declared authentication or permissions.
+`"user"` authenticates lazily through `/web/session/authenticate`
 and reuses the session cookie. It requires database, login, and a web-login
 password. RPC/API-key login is separate and does not establish a web session.
 `getControllers()` is for XML/JSON-RPC clients; for a JSON-2 client, create a
 separate controller client with web-login credentials.
 
-`authenticated = false` skips automatic login. It does not clear cookies already
+The old `authenticated` Boolean overloads remain available but are deprecated.
+
+`auth = "none"` skips automatic login. It does not clear cookies already
 stored by the transport; use a separate client/transport for an anonymous session.
 Custom auth (such as a bearer header) can be supplied in `headers` without session
 authentication. A custom transport must retain session cookies for authenticated

@@ -15,12 +15,22 @@ class OdooControllerClient internal constructor(
     private val login: String?,
     private val password: String?,
     private val transport: HttpTransport,
+    private val contextState: OdooContext = OdooContext(),
 ) {
     private val baseUrl = baseUrl.trimEnd('/')
     private val authMutex = Mutex()
     private val requestIds = AtomicLong()
     @Volatile var userId: Int? = null
         private set
+
+    /** Shared defaults and overrides, copied for the caller. */
+    val context: Map<String, Any?> get() = contextState.merged()
+
+    fun updateContext(values: Map<String, Any?>) { contextState.update(values) }
+
+    private fun validateAuth(auth: String) {
+        require(auth in setOf("none", "public", "user")) { "Auth must be none, public or user" }
+    }
 
     init {
         val uri = URI(this.baseUrl)
@@ -52,49 +62,82 @@ class OdooControllerClient internal constructor(
         }
         val uid = ((result as? Map<*, *>)?.get("uid") as? Number)?.toInt()?.takeIf { it > 0 }
             ?: throw AuthenticationException()
+        result["user_context"]?.let { contextState.setServer(stringMap(it)) }
         userId = uid
         uid
     }
 
     /**
-     * Calls a raw HTTP route. Body is sent verbatim; headers may include Authorization.
-     * Supply csrf_token in the form body for Odoo HTTP routes that require it.
-     * Returns all HTTP statuses, including redirects and
-     * errors, without following redirects. authenticated=true first ensures a session.
+     * Raw HTTP, preserving body and status. auth=user ensures a session; none/public
+     * skip login and keep existing cookies. The server route enforces its own auth.
+     * Context sets Accept-Language only; custom HTTP routes must handle other keys
+     * explicitly in their own payload. Supply csrf_token when required by the route.
      */
     suspend fun http(
         path: String, method: String = "GET", body: String? = null,
-        headers: Map<String, String> = emptyMap(), authenticated: Boolean = false,
+        headers: Map<String, String> = emptyMap(), auth: String = "none",
+        context: Map<String, Any?> = emptyMap(),
     ): HttpResponse {
         val target = url(path)
+        validateAuth(auth)
         require(method in listOf("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS")) { "Unsupported HTTP method" }
         require(body == null || method !in listOf("GET", "HEAD")) { "GET and HEAD requests cannot have a body" }
-        if (authenticated) authenticate()
-        val response = transport.execute(HttpRequest(target, method, headers, body))
+        if (auth == "user") authenticate()
+        val language = contextState.merged(context)["lang"] as? String
+        val requestHeaders = if (language != null && headers.keys.none { it.equals("Accept-Language", true) }) {
+            headers + ("Accept-Language" to language.replace('_', '-'))
+        } else headers
+        val response = transport.execute(HttpRequest(target, method, requestHeaders, body))
         if (response.statusCode == 401) userId = null
         return response
     }
 
-    /** POSTs a JSON value directly, including a top-level array, to a type='http' route. */
+    /** POSTs a JSON value verbatim, including top-level lists, to a type='http' route. */
     suspend fun postJson(
-        path: String, body: Any?, authenticated: Boolean = false,
-        headers: Map<String, String> = emptyMap(),
-    ): HttpResponse = http(path, "POST", JsonCodec.encode(body), jsonHeaders(headers), authenticated)
+        path: String, body: Any?, auth: String = "none",
+        headers: Map<String, String> = emptyMap(), context: Map<String, Any?> = emptyMap(),
+    ): HttpResponse = http(path, "POST", JsonCodec.encode(body), jsonHeaders(headers), auth, context)
 
     /**
-     * Calls a type='json' (Odoo 17/18) or type='jsonrpc' route. Params are named;
-     * returns the unwrapped result and throws RemoteException for JSON-RPC faults.
+     * JSON-RPC with merged context in params.context. none/public do not log in;
+     * user ensures a session. A custom route must consume context where its Odoo
+     * version does not apply it automatically. No request is replayed on expiry.
      */
     suspend fun jsonRpc(
         path: String, params: Map<String, Any?> = emptyMap(),
-        authenticated: Boolean = false, headers: Map<String, String> = emptyMap(),
+        auth: String = "none", headers: Map<String, String> = emptyMap(),
+        context: Map<String, Any?> = emptyMap(),
     ): Any? {
         val target = url(path)
-        // Validate/encode the payload before logging in or doing any network work.
+        validateAuth(auth)
+        val explicitContext = params["context"]?.let(::stringMap).orEmpty() + context
+        // Validate caller data before authentication performs any network work.
+        JsonCodec.encode(explicitContext)
         JsonCodec.encode(params)
-        if (authenticated) authenticate()
-        return requestJsonRpc(target, params, headers)
+        if (auth == "user") authenticate()
+        val effectiveContext = contextState.merged(explicitContext)
+        val parameters = if (effectiveContext.isNotEmpty() || "context" in params) {
+            params + ("context" to effectiveContext)
+        } else params
+        return requestJsonRpc(target, parameters, headers)
     }
+
+    @Deprecated("Use auth = \"user\" or auth = \"none\" instead")
+    suspend fun http(
+        path: String, method: String = "GET", body: String? = null,
+        headers: Map<String, String> = emptyMap(), authenticated: Boolean,
+    ): HttpResponse = http(path, method, body, headers, if (authenticated) "user" else "none")
+
+    @Deprecated("Use auth = \"user\" or auth = \"none\" instead")
+    suspend fun postJson(
+        path: String, body: Any?, authenticated: Boolean, headers: Map<String, String> = emptyMap(),
+    ): HttpResponse = postJson(path, body, if (authenticated) "user" else "none", headers)
+
+    @Deprecated("Use auth = \"user\" or auth = \"none\" instead")
+    suspend fun jsonRpc(
+        path: String, params: Map<String, Any?> = emptyMap(),
+        authenticated: Boolean, headers: Map<String, String> = emptyMap(),
+    ): Any? = jsonRpc(path, params, if (authenticated) "user" else "none", headers)
 
     private suspend fun requestJsonRpc(
         target: String, params: Map<String, Any?>, headers: Map<String, String>,

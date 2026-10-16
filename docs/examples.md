@@ -51,15 +51,44 @@ Use a server method if these actions must share one transaction.
 ## Context and metadata
 
 ```kotlin
-val context = client.getUserContext() + mapOf("lang" to "en_US")
+// authenticate() already loads the web session's user context.
+// For rpc()/json2() clients, load defaults once with client.getUserContext().
+client.updateContext(mapOf(
+    "lang" to "es_ES",
+    "tz" to "America/Toronto",
+    "allowed_company_ids" to selectedCompanyIds, // Companies permitted for this user.
+))
 val countries = client.getModel("res.country").searchRead(
     fields = listOf("name"),
-    context = context,
+    context = mapOf("lang" to "en_US"), // Override only for this call.
+)
+val result = client.getControllers().jsonRpc(
+    path = "/my/private/json_route",
+    auth = "user",
+    context = mapOf("active_test" to false),
 )
 val metadata = partners.fieldsGet(attributes = listOf("type", "string", "required"))
 ```
 
-The selected language must be installed in the database.
+The selected language must be installed in the database. `allowed_company_ids`
+selects companies already permitted by the server. Model calls merge server
+user defaults, app overrides, and per-call context, in that order. Controllers
+receive JSON-RPC context in `params.context`; custom routes must accept/apply it
+where their Odoo version does not do so automatically. For raw HTTP JSON routes,
+include other context keys in the payload format that your server supports;
+`postJson()` preserves the original body (including top-level arrays).
+
+Controller authentication modes:
+
+```kotlin
+val routes = client.getControllers()
+routes.jsonRpc("/my/no_auth_route") // auth = "none" by default; no automatic login.
+routes.jsonRpc("/my/public_route", auth = "public") // Existing session or Odoo's public user.
+routes.jsonRpc("/my/private/json_route", auth = "user") // Ensure a web session.
+```
+
+These flags describe the expected server route. Odoo enforces the route's own
+`auth`; a client cannot change it. `none` and `public` retain existing cookies.
 
 ## Relationships and attachments
 
@@ -161,7 +190,7 @@ val response = routes.postJson(
         mapOf("id" to 123, "signure" to firstSignatureBase64),
         mapOf("id" to 124, "signure" to secondSignatureBase64),
     ),
-    authenticated = true,
+    auth = "user",
 )
 when (response.statusCode) {
     200 -> println("Signatures saved")
@@ -178,7 +207,7 @@ when (response.statusCode) {
 val result = routes.jsonRpc(
     path = "/my/private/json_route",
     params = mapOf("pickings" to listOf(123, 124)),
-    authenticated = true,
+    auth = "user",
 )
 ```
 
@@ -186,7 +215,32 @@ The `/my/...` routes above are examples; implement them on your Odoo server.
 `stock_entrego_app` keeps its HTTP controller and does not require conversion to
 JSON-RPC. Do not use `jsonRpc()` for that HTTP endpoint.
 
-An existing XML/JSON-RPC client can call `client.getControllers()` to reuse its
+For an app using both models and controllers, authenticate once and share the
+returned client (inside a coroutine):
+
+```kotlin
+val client = OdooClient.authenticate(
+    baseUrl = "https://odoo.example.com",
+    database = databaseFromUser,
+    login = loginFromUser,
+    password = passwordFromUser,
+)
+val contacts = client.getModel("res.partner").searchRead(
+    fields = listOf("name", "email"),
+    limit = 10,
+)
+val result = client.getControllers().jsonRpc(
+    path = "/my/private/json_route",
+    params = mapOf("partner_id" to 10),
+    auth = "user",
+)
+```
+
+This uses the login UID for model RPC and the existing cookie for controllers.
+Reuse this client per account/server; creating another client starts another login.
+Session expiration handling remains explicit, as described above.
+
+An existing XML/JSON-RPC client created with `rpc()` can call `client.getControllers()` to reuse its
 transport and configured credentials. This still performs a separate web-session
 login; `checkLogin()` alone does not create a session cookie. Web-login passwords
 are required for these session routes, even if an API key works for model RPC.
@@ -214,7 +268,7 @@ Button(enabled = !sending, onClick = {
         try {
             val response = routes.postJson(
                 "/stock_entrego_app/signatures", signatures,
-                authenticated = true,
+                auth = "user",
             )
             message = when (response.statusCode) {
                 200 -> "Firmas guardadas"

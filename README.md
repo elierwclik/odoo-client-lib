@@ -66,7 +66,7 @@ From `example/`, you can also build it with:
 import io.github.elierwclik.odooclient.OdooClient
 
 // Run inside a coroutine and obtain credentials from the user.
-val client = OdooClient.rpc(
+val client = OdooClient.authenticate(
     baseUrl = "https://odoo.example.com",
     database = "my_database",
     login = "user@example.com",
@@ -90,11 +90,16 @@ val controllers = client.getControllers()
 val response = controllers.postJson(
     path = "/stock_entrego_app/signatures",
     body = listOf(mapOf("id" to 123, "signure" to signatureBase64)),
-    authenticated = true,
+    auth = "user",
 )
 val result = response.json() as Map<*, *>
 // HTTP 200 means saved; HTTP 202 means accepted for background processing.
 ```
+
+Controllers accept `auth = "none"` (default), `"public"`, or `"user"`.
+Use `client.updateContext(mapOf("lang" to "es_ES", "allowed_company_ids" to companyIds))`
+for shared model and JSON-RPC controller context; per-call `context` overrides it.
+Raw HTTP bodies keep their original format; see [context handling](docs/api.md#context).
 
 For public routes, use `OdooClient.controllers(baseUrl)` without credentials.
 Use `http()` for raw HTTP, `postJson()` for a JSON body, and `jsonRpc()` for

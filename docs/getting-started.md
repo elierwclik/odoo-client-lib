@@ -50,7 +50,7 @@ see its README for local server and emulator settings.
 import io.github.elierwclik.odooclient.OdooClient
 
 suspend fun fetchContacts(passwordFromUser: String): List<Map<String, Any?>> {
-    val client = OdooClient.rpc(
+    val client = OdooClient.authenticate(
         baseUrl = "https://odoo.example.com",
         database = "my_database",
         login = "user@example.com",
