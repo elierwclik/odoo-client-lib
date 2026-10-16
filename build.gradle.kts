@@ -18,7 +18,11 @@ android {
     publishing { singleVariant("release") { withSourcesJar() } }
 }
 
-kotlin { jvmToolchain(17) }
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
 
 dependencies {
     implementation("com.google.code.gson:gson:2.11.0")

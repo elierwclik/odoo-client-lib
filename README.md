@@ -22,8 +22,15 @@ example/             Simple Android app importing the compiled AAR
 
 The repository root is the Android library project. Open this directory in
 Android Studio to work on the library. The `example/` directory is an independent
-Android app project with its own Gradle wrapper. Requirements: JDK 17, Android SDK 36,
+Android app project with its own Gradle wrapper. Requirements: Android Studio's bundled
+JDK (17, 21, or 25), Android SDK 36,
 Build Tools 35.0.0, and Android 8.0+ to run the example.
+
+Keep Android Studio's default Gradle JDK selection. Both projects use the selected
+JDK and compile Java and Kotlin to Java 17 bytecode; no separate JDK 17 installation
+or project-specific `JAVA_HOME` is required. Terminal builds use your environment's
+`JAVA_HOME`, or `java` on `PATH`, which must select a Gradle 9.1.0-compatible JDK
+such as 17, 21, or 25.
 
 ## Build the library
 

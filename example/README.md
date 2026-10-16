@@ -14,7 +14,9 @@ to any location; it includes its own Gradle Wrapper.
 
 1. In Android Studio, choose **File → Open** and select this
    **`example/`** directory containing `settings.gradle.kts`.
-2. Use **JDK 17** for Gradle and install Android SDK 36 if requested.
+2. Keep Android Studio's **default Gradle JDK** (the bundled JDK 17, 21, or 25)
+   and install Android SDK 36 if requested. A separate JDK 17 installation is
+   unnecessary; Java and Kotlin compile to Java 17 bytecode using the selected JDK.
 3. Wait for synchronization, select **app** and an Android 8.0+ device/emulator,
    then click **▶ Run**.
 4. Enter your Odoo URL, database, username, and password or RPC API key.
@@ -26,6 +28,9 @@ URL can be `http://10.0.2.2:8069`. Use HTTPS for a remote server.
 HTTP is enabled only in the debug variant.
 
 From a terminal in this directory:
+
+Use a compatible JDK (such as 17, 21, or 25) through your environment's `JAVA_HOME` or
+`java` on `PATH`. No personal Java paths are stored in the project.
 
 ```sh
 ./gradlew :app:assembleDebug

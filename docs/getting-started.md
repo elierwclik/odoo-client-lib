@@ -3,9 +3,14 @@
 ## Requirements
 
 - Android 8.0+ (`minSdk = 26`).
-- JDK 17 to build the project.
+- Android Studio's bundled JDK (17, 21, or 25), using the default Gradle JDK selection.
 - Android SDK 36 and Build Tools 35.0.0.
-- Gradle 8.13, AGP 8.13.2, and Kotlin 2.3.21, specified in the project configuration.
+- Gradle 9.1.0, AGP 8.13.2, and Kotlin 2.3.21, specified in the project configuration.
+
+The project uses the selected JDK and targets Java 17 bytecode for both Java and
+Kotlin. It does not require a separate JDK 17 installation or a project-specific
+`JAVA_HOME`. For terminal builds, your environment's `JAVA_HOME` or `java` on
+`PATH` must select a compatible JDK, such as 17, 21, or 25.
 
 Your app's Kotlin compiler must support the library's Kotlin metadata.
 The example project includes the versions used to build the AAR.
